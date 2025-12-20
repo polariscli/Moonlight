@@ -9,8 +9,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Mixin to spoof the client brand as Lunar Client. Targets FMLCommonHandler
- * since Forge patches ClientBrandRetriever to delegate to getModName().
+ * Targets FMLCommonHandler since Forge patches ClientBrandRetriever to delegate
+ * to getModName().
  */
 @Mixin(FMLCommonHandler.class)
 public class FMLCommonHandlerMixin {

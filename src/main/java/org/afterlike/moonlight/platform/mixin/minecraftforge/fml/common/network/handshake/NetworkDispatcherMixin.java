@@ -43,9 +43,6 @@ public abstract class NetworkDispatcherMixin {
 				return;
 			}
 		}
-		// Any other inbound packet while NetworkDispatcher is still installed is
-		// Forge's
-		// "unexpected packet during negotiation -> assume vanilla" moment.
 		if (msg instanceof S01PacketJoinGame) {
 			Moonlight.getLogger().info("Received JoinGame packet, completing as VANILLA");
 		} else {
@@ -63,13 +60,11 @@ public abstract class NetworkDispatcherMixin {
 			ChannelHandlerContext context, CallbackInfoReturnable<Boolean> cir) {
 		if (!Minecraft.getMinecraft().isSingleplayer()) {
 			String channelName = msg.getChannelName();
-			// If we've already aborted as vanilla, allow FML packets through to
-			// handleVanilla
 			if (moonlight$handshakeAborted
 					&& ("FML|HS".equals(channelName) || "FML|MP".equals(channelName))) {
 				return;
 			}
-			// Block FML handshake packets only if we haven't aborted yet
+			// Block FML handshake packets if we haven't aborted yet
 			if ("FML|HS".equals(channelName) || "FML|MP".equals(channelName)) {
 				cir.setReturnValue(true); // Pretend we handled it
 			}

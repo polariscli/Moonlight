@@ -1,7 +1,10 @@
 package org.afterlike.moonlight.apollo;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.protobuf.Any;
+import com.lunarclient.apollo.common.v1.LunarClientVersion;
+import com.lunarclient.apollo.common.v1.MinecraftVersion;
+import com.lunarclient.apollo.player.v1.PlayerHandshakeMessage;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
@@ -76,28 +79,35 @@ public class ApolloHandler {
 	}
 
 	/**
-	 * Sends the PlayerHandshakeMessage to the server. This mimics what Lunar Client
-	 * sends when connecting.
+	 * Sends the PlayerHandshakeMessage to the server using Protocol Buffer format.
 	 */
 	private void sendPlayerHandshake(NetworkManager manager) {
-		JsonObject handshake = new JsonObject();
-		handshake.addProperty("@type",
-				"type.googleapis.com/lunarclient.apollo.player.v1.PlayerHandshakeMessage");
-		// Minecraft version
-		JsonObject minecraftVersion = new JsonObject();
-		minecraftVersion.addProperty("enum", "V1_8");
-		handshake.add("minecraft_version", minecraftVersion);
-		// Lunar Client version
-		JsonObject lunarVersion = new JsonObject();
-		lunarVersion.addProperty("git_branch", "master");
-		lunarVersion.addProperty("git_commit", "production");
-		lunarVersion.addProperty("semver", Moonlight.LUNAR_SEMVER);
-		handshake.add("lunar_client_version", lunarVersion);
-		// We don't report any mods
-		handshake.add("installed_mods", new JsonArray());
-		// Send on lunar:apollo channel
-		sendPacket(manager, CHANNEL_APOLLO, handshake);
-		Moonlight.getLogger().info("Sent Apollo player handshake");
+		Moonlight.getLogger().debug(
+				"ApolloHandler.sendPlayerHandshake - Constructing protobuf handshake message");
+		// Build Minecraft version (V1_8 for 1.8.9)
+		MinecraftVersion minecraftVersion = MinecraftVersion.newBuilder().setEnum("V1_8").build();
+		// Build Lunar Client version
+		LunarClientVersion lunarClientVersion = LunarClientVersion.newBuilder()
+				.setGitBranch("master").setGitCommit("production").setSemver(Moonlight.LUNAR_SEMVER)
+				.build();
+		// Build PlayerHandshakeMessage
+		PlayerHandshakeMessage handshake = PlayerHandshakeMessage.newBuilder()
+				.setMinecraftVersion(minecraftVersion).setLunarClientVersion(lunarClientVersion)
+				// Empty mod list - we don't report any mods
+				.build();
+		// Wrap in Any and convert to byte array
+		Any any = Any.pack(handshake);
+		byte[] data = any.toByteArray();
+		Moonlight.getLogger().debug(
+				"ApolloHandler.sendPlayerHandshake - Sending handshake on channel: {}, size: {} bytes, channel open: {}",
+				CHANNEL_APOLLO, data.length, manager.isChannelOpen());
+		// Send on lunar:apollo channel (protobuf format)
+		PacketBuffer buffer = new PacketBuffer(Unpooled.buffer());
+		buffer.writeBytes(data);
+		C17PacketCustomPayload packet = new C17PacketCustomPayload(CHANNEL_APOLLO, buffer);
+		manager.sendPacket(packet);
+		Moonlight.getLogger().info(
+				"ApolloHandler.sendPlayerHandshake - Sent Apollo player handshake (protobuf)");
 	}
 
 	/**
