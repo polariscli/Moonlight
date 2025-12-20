@@ -1,0 +1,13 @@
+{
+  "package": "org.afterlike.moonlight.platform.mixin",
+  "refmap": "mixins.moonlight.refmap.json",
+  "minVersion": "0.7",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "minecraftforge.fml.common.FMLCommonHandlerMixin",
+    "minecraftforge.fml.common.network.handshake.NetworkDispatcherMixin"
+  ],
+  "client": [
+    "minecraft.client.network.NetHandlerPlayClientMixin"
+  ]
+}
