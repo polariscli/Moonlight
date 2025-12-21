@@ -11,7 +11,7 @@ public class Moonlight {
 	private static final @Nullable Moonlight instance = new Moonlight();
 	private static final @NotNull String VERSION = org.afterlike.moonlight.BuildConstants.VERSION;
 	public static final @NotNull String LUNAR_VERSION = "v2.21.20-2551";
-	public static final @NotNull String LUNAR_SEMVER = "2.21.20";
+	public static final @NotNull String LUNAR_GIT_COMMIT = "c0c266ce58d2c9a9b7d18fade6086ca9dbc5b22b";
 	public static final @NotNull String CLIENT_BRAND = "lunarclient:" + LUNAR_VERSION;
 	public Moonlight() {
 	}

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.protobuf.Any;
 import com.lunarclient.apollo.common.v1.LunarClientVersion;
 import com.lunarclient.apollo.common.v1.MinecraftVersion;
+import com.lunarclient.apollo.player.v1.EmbeddedCheckoutSupport;
 import com.lunarclient.apollo.player.v1.PlayerHandshakeMessage;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
@@ -84,16 +85,17 @@ public class ApolloHandler {
 	private void sendPlayerHandshake(NetworkManager manager) {
 		Moonlight.getLogger().debug(
 				"ApolloHandler.sendPlayerHandshake - Constructing protobuf handshake message");
-		// Build Minecraft version (V1_8 for 1.8.9)
-		MinecraftVersion minecraftVersion = MinecraftVersion.newBuilder().setEnum("V1_8").build();
+		// Build Minecraft version (v1_8 for 1.8.9)
+		MinecraftVersion minecraftVersion = MinecraftVersion.newBuilder().setEnum("v1_8").build();
 		// Build Lunar Client version
 		LunarClientVersion lunarClientVersion = LunarClientVersion.newBuilder()
-				.setGitBranch("master").setGitCommit("production").setSemver(Moonlight.LUNAR_SEMVER)
-				.build();
+				.setGitBranch("master").setGitCommit(Moonlight.LUNAR_GIT_COMMIT)
+				.setSemver(Moonlight.LUNAR_VERSION).build();
 		// Build PlayerHandshakeMessage
 		PlayerHandshakeMessage handshake = PlayerHandshakeMessage.newBuilder()
 				.setMinecraftVersion(minecraftVersion).setLunarClientVersion(lunarClientVersion)
-				// Empty mod list - we don't report any mods
+				.setEmbeddedCheckoutSupport(
+						EmbeddedCheckoutSupport.EMBEDDED_CHECKOUT_SUPPORT_WINDOW)
 				.build();
 		// Wrap in Any and convert to byte array
 		Any any = Any.pack(handshake);
