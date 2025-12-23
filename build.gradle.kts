@@ -5,8 +5,9 @@ import org.apache.commons.lang3.SystemUtils
 // Buildscript based on https://github.com/lineargraph/Forge1.8.9Template (Unlicense)
 
 // Version from GitHub Tag:
-val gitRef : String? = System.getenv("GITHUB_REF_NAME")
-version = gitRef ?: "v1.0-dev"
+val version: String by project
+val lunarVersion: String by project
+val lunarGitCommit: String by project
 
 // Plugins:
 plugins {
@@ -60,10 +61,14 @@ sourceSets {
     main {
         blossom {
             resources {
-                property("version", project.version.toString())
+                property("version", version)
+                property("lunarVersion", lunarVersion)
+                property("lunarGitCommit", lunarGitCommit)
             }
             javaSources {
-                property("version", project.version.toString())
+                property("version", version)
+                property("lunarVersion", lunarVersion)
+                property("lunarGitCommit", lunarGitCommit)
             }
         }
         output.setResourcesDir(sourceSets.main.flatMap { it.java.classesDirectory })
