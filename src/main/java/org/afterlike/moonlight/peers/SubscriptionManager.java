@@ -10,15 +10,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.network.NetHandlerPlayClient;
 import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.world.WorldEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
-import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 
 public final class SubscriptionManager {
 	private static SubscriptionManager instance;
 	private final Set<UUID> subscribedSet = new HashSet<>();
-	private boolean active;
 	private WSClient wsClient;
 	private SubscriptionManager() {
 	}
@@ -28,6 +25,10 @@ public final class SubscriptionManager {
 		MinecraftForge.EVENT_BUS.register(instance);
 	}
 
+	/**
+	 * Disconnects any existing WS and creates a fresh connection. Called on first
+	 * auth and on account switch.
+	 */
 	public static void connect(String jwt) {
 		if (instance == null)
 			return;
@@ -41,26 +42,8 @@ public final class SubscriptionManager {
 	}
 
 	@SubscribeEvent
-	public void onWorldLoad(WorldEvent.Load event) {
-		if (event.world.isRemote)
-			active = true;
-	}
-
-	@SubscribeEvent
-	public void onWorldUnload(WorldEvent.Unload event) {
-		if (event.world.isRemote)
-			cleanupAndDeactivate();
-	}
-
-	@SubscribeEvent
-	public void onClientDisconnect(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-		cleanupAndDeactivate();
-	}
-
-	@SubscribeEvent
 	public void onClientTick(TickEvent.ClientTickEvent event) {
-		if (event.phase != TickEvent.Phase.START || !active || wsClient == null
-				|| !wsClient.isConnected())
+		if (event.phase != TickEvent.Phase.START || wsClient == null || !wsClient.isConnected())
 			return;
 		syncWithTabList();
 	}
@@ -79,7 +62,6 @@ public final class SubscriptionManager {
 				current.add(uuid);
 			}
 		}
-		// Subscribe to players who appeared in the tab list.
 		List<UUID> toSubscribe = new ArrayList<>();
 		for (UUID uuid : current) {
 			if (!subscribedSet.contains(uuid)) {
@@ -90,7 +72,6 @@ public final class SubscriptionManager {
 			subscribedSet.addAll(toSubscribe);
 			wsClient.subscribeV2(toSubscribe);
 		}
-		// Unsubscribe from players who left the tab list.
 		List<UUID> toUnsubscribe = new ArrayList<>();
 		for (UUID uuid : subscribedSet) {
 			if (!current.contains(uuid)) {
@@ -102,11 +83,5 @@ public final class SubscriptionManager {
 			wsClient.unsubscribe(toUnsubscribe);
 			toUnsubscribe.forEach(u -> PeerRegistry.getInstance().remove(u));
 		}
-	}
-
-	private void cleanupAndDeactivate() {
-		subscribedSet.clear();
-		PeerRegistry.getInstance().clear();
-		active = false;
 	}
 }

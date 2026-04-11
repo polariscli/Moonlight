@@ -8,8 +8,6 @@ import com.lunarclient.apollo.player.v1.EmbeddedCheckoutSupport;
 import com.lunarclient.apollo.player.v1.PlayerHandshakeMessage;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
-import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.PacketBuffer;
@@ -30,7 +28,7 @@ public class ApolloHandler {
 	public static final @NotNull String CHANNEL_TRANSFER = "transfer:channel";
 	private static final Logger LOGGER = LogManager.getLogger();
 	private static ApolloHandler instance;
-	private final Set<NetworkManager> registeredManagers = new HashSet<>();
+	private NetworkManager lastRegistered;
 	public static void init() {
 		if (instance == null) {
 			instance = new ApolloHandler();
@@ -52,10 +50,10 @@ public class ApolloHandler {
 			return;
 		}
 		NetworkManager manager = event.manager;
-		if (registeredManagers.contains(manager)) {
+		if (manager == lastRegistered) {
 			return;
 		}
-		registeredManagers.add(manager);
+		lastRegistered = manager;
 		registerChannels(manager);
 		sendPlayerHandshake(manager);
 	}
