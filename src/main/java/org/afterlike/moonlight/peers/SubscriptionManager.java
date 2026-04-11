@@ -12,10 +12,12 @@ import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import org.afterlike.moonlight.Moonlight;
+import org.afterlike.moonlight.peers.auth.AuthClient;
 
 public final class SubscriptionManager {
 	private static SubscriptionManager instance;
-	private final Set<UUID> subscribedSet = new HashSet<>();
+	private final Set<UUID> fetchedSet = new HashSet<>();
 	private WSClient wsClient;
 	private SubscriptionManager() {
 	}
@@ -39,13 +41,18 @@ public final class SubscriptionManager {
 		if (instance.wsClient != null) {
 			instance.wsClient.disconnect();
 		}
-		instance.subscribedSet.clear();
+		instance.fetchedSet.clear();
 		PeerRegistry.getInstance().clear();
 		instance.wsClient = new WSClient();
 		instance.wsClient.setOnReconnect(() -> {
-			instance.subscribedSet.clear();
+			instance.fetchedSet.clear();
 		});
-		instance.wsClient.connect(jwt);
+		instance.wsClient.connect(() -> {
+			String freshJwt = AuthClient.fetchJwt();
+			Moonlight.get().setAuthenticatorJwt(freshJwt,
+					Minecraft.getMinecraft().getSession().getProfile().getId());
+			return freshJwt;
+		});
 	}
 
 	@SubscribeEvent
@@ -69,26 +76,25 @@ public final class SubscriptionManager {
 				current.add(uuid);
 			}
 		}
-		List<UUID> toSubscribe = new ArrayList<>();
+		List<UUID> toFetch = new ArrayList<>();
 		for (UUID uuid : current) {
-			if (!subscribedSet.contains(uuid)) {
-				toSubscribe.add(uuid);
+			if (!fetchedSet.contains(uuid)) {
+				toFetch.add(uuid);
 			}
 		}
-		if (!toSubscribe.isEmpty()) {
-			subscribedSet.addAll(toSubscribe);
-			wsClient.subscribeV2(toSubscribe);
+		if (!toFetch.isEmpty()) {
+			fetchedSet.addAll(toFetch);
+			wsClient.loadTabLogos(toFetch);
 		}
-		List<UUID> toUnsubscribe = new ArrayList<>();
-		for (UUID uuid : subscribedSet) {
+		List<UUID> left = new ArrayList<>();
+		for (UUID uuid : fetchedSet) {
 			if (!current.contains(uuid)) {
-				toUnsubscribe.add(uuid);
+				left.add(uuid);
 			}
 		}
-		if (!toUnsubscribe.isEmpty()) {
-			toUnsubscribe.forEach(subscribedSet::remove);
-			wsClient.unsubscribe(toUnsubscribe);
-			toUnsubscribe.forEach(u -> PeerRegistry.getInstance().remove(u));
+		if (!left.isEmpty()) {
+			left.forEach(fetchedSet::remove);
+			left.forEach(u -> PeerRegistry.getInstance().remove(u));
 		}
 	}
 }

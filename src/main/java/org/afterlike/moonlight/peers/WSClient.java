@@ -31,7 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLContext;
@@ -48,14 +50,16 @@ public final class WSClient {
 	private static final String HOST = "websocket.lunarclientprod.com";
 	private static final int PORT = 443;
 	private static final String PATH = "/game";
-	private static final String SUB_SERVICE = "lunarclient.websocket.subscription.v1.SubscriptionService";
-	private static final String COSMETIC_SERVICE = "lunarclient.websocket.cosmetic.v1.CosmeticService";
+	private static final String COSMETIC_SERVICE = "lunarclient.websocket.cosmetic.v2.CosmeticService";
+	private static final String HEARTBEAT_SERVICE = "lunarclient.websocket.heartbeat.v1.HeartbeatService";
 	private static final long MAX_BACKOFF_MS = 30_000;
+	private static final long HEARTBEAT_INTERVAL_MS = 60_000;
 	private final AtomicInteger requestCounter = new AtomicInteger(1);
 	private final Set<String> pendingLoginIds = ConcurrentHashMap.newKeySet();
 	private volatile Channel channel;
 	private volatile boolean wsReady = false;
 	private volatile boolean shouldReconnect = false;
+	private volatile ScheduledFuture<?> heartbeatTask;
 	private NioEventLoopGroup group;
 	private Runnable onReconnect;
 	public boolean isConnected() {
@@ -66,7 +70,7 @@ public final class WSClient {
 		this.onReconnect = onReconnect;
 	}
 
-	public void connect(String jwt) {
+	public void connect(Callable<String> jwtFetcher) {
 		if (isConnected())
 			return;
 		shouldReconnect = true;
@@ -75,11 +79,13 @@ public final class WSClient {
 			while (shouldReconnect) {
 				group = new NioEventLoopGroup(1);
 				try {
+					String jwt = jwtFetcher.call();
 					establishConnection(jwt);
 				} catch (Exception e) {
 					LOGGER.warn("Connection failed: {}", e.getMessage());
 				} finally {
 					wsReady = false;
+					stopHeartbeat();
 					channel = null;
 					group.shutdownGracefully(0, 5, TimeUnit.SECONDS);
 				}
@@ -136,28 +142,40 @@ public final class WSClient {
 	public void disconnect() {
 		shouldReconnect = false;
 		wsReady = false;
+		stopHeartbeat();
 		if (channel != null)
 			channel.close();
 	}
 
-	public void subscribeV2(Collection<UUID> uuids) {
-		if (!isConnected() || uuids.isEmpty())
-			return;
-		try {
-			send(SUB_SERVICE, "SubscribeV2", encodeUuidList(uuids));
-			LOGGER.info("SubscribeV2 for {} player(s)", uuids.size());
-		} catch (IOException e) {
-			LOGGER.warn("subscribeV2 encode failed: {}", e.getMessage());
+	private void startHeartbeat() {
+		stopHeartbeat();
+		heartbeatTask = channel.eventLoop().scheduleAtFixedRate(() -> {
+			if (!isConnected())
+				return;
+			try {
+				send(HEARTBEAT_SERVICE, "GameHeartbeat", new byte[0]);
+			} catch (IOException e) {
+				LOGGER.warn("Heartbeat failed: {}", e.getMessage());
+			}
+		}, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+	}
+
+	private void stopHeartbeat() {
+		ScheduledFuture<?> task = heartbeatTask;
+		if (task != null) {
+			task.cancel(false);
+			heartbeatTask = null;
 		}
 	}
 
-	public void unsubscribe(Collection<UUID> uuids) {
+	public void loadTabLogos(Collection<UUID> uuids) {
 		if (!isConnected() || uuids.isEmpty())
 			return;
 		try {
-			send(SUB_SERVICE, "Unsubscribe", encodeUuidList(uuids));
+			send(COSMETIC_SERVICE, "LoadTabLogos", encodeUuidList(uuids));
+			LOGGER.info("LoadTabLogos for {} player(s)", uuids.size());
 		} catch (IOException e) {
-			LOGGER.warn("unsubscribe encode failed: {}", e.getMessage());
+			LOGGER.warn("loadTabLogos encode failed: {}", e.getMessage());
 		}
 	}
 
@@ -288,11 +306,37 @@ public final class WSClient {
 		return new UUID(high, low);
 	}
 
-	private static void parseCosmeticPush(byte[] bytes) throws IOException {
+	private static int decodePackedColor(byte[] bytes) throws IOException {
+		CodedInputStream in = CodedInputStream.newInstance(bytes);
+		while (!in.isAtEnd()) {
+			int tag = in.readTag();
+			if ((tag >>> 3) == 1)
+				return in.readInt32();
+			in.skipField(tag);
+		}
+		return 0;
+	}
+
+	/**
+	 * Parse LoadTabLogosResponse (field 1 = repeated TabLogo). Each TabLogo: field
+	 * 1 = Uuid player_uuid, field 2 = Color logo_color, field 4 = int32 badge_id.
+	 */
+	private static void parseLoadTabLogosResponse(byte[] bytes) throws IOException {
+		CodedInputStream in = CodedInputStream.newInstance(bytes);
+		while (!in.isAtEnd()) {
+			int tag = in.readTag();
+			if ((tag >>> 3) == 1) {
+				parseTabLogo(in.readBytes().toByteArray());
+			} else {
+				in.skipField(tag);
+			}
+		}
+	}
+
+	private static void parseTabLogo(byte[] bytes) throws IOException {
 		CodedInputStream in = CodedInputStream.newInstance(bytes);
 		UUID uuid = null;
 		float r = 1f, g = 1f, b = 1f, a = 1f;
-		boolean logoAlwaysShow = false;
 		int badgeId = 0;
 		while (!in.isAtEnd()) {
 			int tag = in.readTag();
@@ -300,31 +344,19 @@ public final class WSClient {
 				case 1 :
 					uuid = decodeUuid(in.readBytes().toByteArray());
 					break;
-				case 2 :
-					in.readBytes();
-					break;
-				case 3 : {
-					CodedInputStream color = CodedInputStream
-							.newInstance(in.readBytes().toByteArray());
-					while (!color.isAtEnd()) {
-						int ct = color.readTag();
-						if ((ct >>> 3) == 1) {
-							int packed = color.readInt32();
-							int rawA = (packed >> 24) & 0xFF;
-							a = rawA == 0 ? 1f : rawA / 255.0f;
-							r = ((packed >> 16) & 0xFF) / 255.0f;
-							g = ((packed >> 8) & 0xFF) / 255.0f;
-							b = (packed & 0xFF) / 255.0f;
-						} else {
-							color.skipField(ct);
-						}
-					}
+				case 2 : {
+					int packed = decodePackedColor(in.readBytes().toByteArray());
+					int rawA = (packed >> 24) & 0xFF;
+					a = rawA == 0 ? 1f : rawA / 255.0f;
+					r = ((packed >> 16) & 0xFF) / 255.0f;
+					g = ((packed >> 8) & 0xFF) / 255.0f;
+					b = (packed & 0xFF) / 255.0f;
 					break;
 				}
-				case 4 :
-					logoAlwaysShow = in.readBool();
+				case 3 :
+					in.readBytes(); // plus_color — unused
 					break;
-				case 5 :
+				case 4 :
 					badgeId = in.readInt32();
 					break;
 				default :
@@ -332,20 +364,7 @@ public final class WSClient {
 			}
 		}
 		if (uuid != null) {
-			PeerRegistry.getInstance()
-					.update(new PeerData(uuid, r, g, b, a, logoAlwaysShow, badgeId));
-		}
-	}
-
-	private static void parseSubscribeV2Response(byte[] bytes) throws IOException {
-		CodedInputStream in = CodedInputStream.newInstance(bytes);
-		while (!in.isAtEnd()) {
-			int tag = in.readTag();
-			if ((tag >>> 3) == 1) {
-				parseCosmeticPush(in.readBytes().toByteArray());
-			} else {
-				in.skipField(tag);
-			}
+			PeerRegistry.getInstance().update(new PeerData(uuid, r, g, b, a, true, badgeId));
 		}
 	}
 
@@ -357,7 +376,8 @@ public final class WSClient {
 		while (!in.isAtEnd()) {
 			int tag = in.readTag();
 			switch (tag >>> 3) {
-				case 4 : {
+				case 1 : {
+					// logo_color = field 1 (v2 LoginResponse)
 					CodedInputStream color = CodedInputStream
 							.newInstance(in.readBytes().toByteArray());
 					while (!color.isAtEnd()) {
@@ -376,7 +396,8 @@ public final class WSClient {
 					}
 					break;
 				}
-				case 5 :
+				case 2 :
+					// logo_always_show = field 2 (v2 LoginResponse)
 					logoAlwaysShow = in.readBool();
 					break;
 				default :
@@ -398,52 +419,34 @@ public final class WSClient {
 			CodedInputStream in = CodedInputStream.newInstance(bytes);
 			while (!in.isAtEnd()) {
 				int tag = in.readTag();
-				switch (tag >>> 3) {
-					case 1 : {
-						CodedInputStream rpc = CodedInputStream
-								.newInstance(in.readBytes().toByteArray());
-						String requestId = null;
-						byte[] output = null;
-						while (!rpc.isAtEnd()) {
-							int t = rpc.readTag();
-							switch (t >>> 3) {
-								case 1 :
-									requestId = new String(rpc.readBytes().toByteArray(),
-											StandardCharsets.UTF_8);
-									break;
-								case 2 :
-									output = rpc.readBytes().toByteArray();
-									break;
-								default :
-									rpc.skipField(t);
-							}
+				if ((tag >>> 3) == 1) {
+					CodedInputStream rpc = CodedInputStream
+							.newInstance(in.readBytes().toByteArray());
+					String requestId = null;
+					byte[] output = null;
+					while (!rpc.isAtEnd()) {
+						int t = rpc.readTag();
+						switch (t >>> 3) {
+							case 1 :
+								requestId = new String(rpc.readBytes().toByteArray(),
+										StandardCharsets.UTF_8);
+								break;
+							case 2 :
+								output = rpc.readBytes().toByteArray();
+								break;
+							default :
+								rpc.skipField(t);
 						}
-						if (output != null) {
-							if (requestId != null && pendingLoginIds.remove(requestId)) {
-								parseLoginResponse(output);
-							} else {
-								parseSubscribeV2Response(output);
-							}
-						}
-						break;
 					}
-					case 2 : {
-						CodedInputStream push = CodedInputStream
-								.newInstance(in.readBytes().toByteArray());
-						byte[] body = null;
-						while (!push.isAtEnd()) {
-							int t = push.readTag();
-							if ((t >>> 3) == 3)
-								body = push.readBytes().toByteArray();
-							else
-								push.skipField(t);
+					if (output != null) {
+						if (requestId != null && pendingLoginIds.remove(requestId)) {
+							parseLoginResponse(output);
+						} else {
+							parseLoadTabLogosResponse(output);
 						}
-						if (body != null)
-							parseCosmeticPush(body);
-						break;
 					}
-					default :
-						in.skipField(tag);
+				} else {
+					in.skipField(tag);
 				}
 			}
 		} catch (Exception e) {
@@ -468,6 +471,7 @@ public final class WSClient {
 							if (f.isSuccess()) {
 								wsReady = true;
 								LOGGER.info("Ready");
+								startHeartbeat();
 								if (onReconnect != null) {
 									onReconnect.run();
 								}
