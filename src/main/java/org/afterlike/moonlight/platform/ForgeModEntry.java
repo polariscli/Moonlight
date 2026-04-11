@@ -48,7 +48,8 @@ public class ForgeModEntry {
 	@SubscribeEvent
 	public void onConnectedToServer(FMLNetworkEvent.ClientConnectedToServerEvent event) {
 		UUID currentUuid = Minecraft.getMinecraft().getSession().getProfile().getId();
-		if (currentUuid != null && currentUuid.equals(Moonlight.get().getAuthenticatedUuid())) {
+		if (currentUuid != null && currentUuid.equals(Moonlight.get().getAuthenticatedUuid())
+				&& SubscriptionManager.isConnected()) {
 			return;
 		}
 		Moonlight.get().clearAuth();

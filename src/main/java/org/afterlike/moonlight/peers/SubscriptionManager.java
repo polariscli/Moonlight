@@ -25,6 +25,10 @@ public final class SubscriptionManager {
 		MinecraftForge.EVENT_BUS.register(instance);
 	}
 
+	public static boolean isConnected() {
+		return instance != null && instance.wsClient != null && instance.wsClient.isConnected();
+	}
+
 	/**
 	 * Disconnects any existing WS and creates a fresh connection. Called on first
 	 * auth and on account switch.
@@ -38,6 +42,9 @@ public final class SubscriptionManager {
 		instance.subscribedSet.clear();
 		PeerRegistry.getInstance().clear();
 		instance.wsClient = new WSClient();
+		instance.wsClient.setOnReconnect(() -> {
+			instance.subscribedSet.clear();
+		});
 		instance.wsClient.connect(jwt);
 	}
 

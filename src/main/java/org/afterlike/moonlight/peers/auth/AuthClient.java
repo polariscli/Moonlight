@@ -9,6 +9,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
@@ -51,7 +52,26 @@ public class AuthClient {
 	private static final int PORT = 443;
 	private static final String PATH = "/game";
 	private static final String INITIATOR = "assetServer";
+	private static final int MAX_AUTH_ATTEMPTS = 3;
+	private static final long AUTH_RETRY_DELAY_MS = 2000;
 	public static String fetchJwt() throws Exception {
+		Exception lastError = null;
+		for (int attempt = 1; attempt <= MAX_AUTH_ATTEMPTS; attempt++) {
+			try {
+				return establishAndFetchJwt();
+			} catch (Exception e) {
+				lastError = e;
+				if (attempt < MAX_AUTH_ATTEMPTS) {
+					LOGGER.warn("Auth attempt {}/{} failed, retrying in {}ms: {}", attempt,
+							MAX_AUTH_ATTEMPTS, AUTH_RETRY_DELAY_MS, e.getMessage());
+					Thread.sleep(AUTH_RETRY_DELAY_MS);
+				}
+			}
+		}
+		throw lastError;
+	}
+
+	private static String establishAndFetchJwt() throws Exception {
 		Session session = Minecraft.getMinecraft().getSession();
 		CompletableFuture<String> jwtFuture = new CompletableFuture<>();
 		NioEventLoopGroup group = new NioEventLoopGroup(1);
@@ -63,6 +83,7 @@ public class AuthClient {
 			WebSocketClientHandshaker handshaker = WebSocketClientHandshakerFactory
 					.newHandshaker(uri, WebSocketVersion.V13, null, false, wsHeaders);
 			Bootstrap b = new Bootstrap().group(group).channel(NioSocketChannel.class)
+					.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
 					.handler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						protected void initChannel(SocketChannel ch) throws Exception {
@@ -72,6 +93,7 @@ public class AuthClient {
 							sslParams.setEndpointIdentificationAlgorithm("HTTPS");
 							engine.setSSLParameters(sslParams);
 							SslHandler sslHandler = new SslHandler(engine);
+							sslHandler.setHandshakeTimeoutMillis(10_000);
 							// MC 1.8.9's Netty (4.0.x) propagates channelActive before SSL
 							// finishes, so we must wait for the SSL future before upgrading.
 							sslHandler.handshakeFuture().addListener(f -> {

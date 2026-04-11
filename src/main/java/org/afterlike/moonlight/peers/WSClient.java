@@ -9,6 +9,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
@@ -49,66 +50,91 @@ public final class WSClient {
 	private static final String PATH = "/game";
 	private static final String SUB_SERVICE = "lunarclient.websocket.subscription.v1.SubscriptionService";
 	private static final String COSMETIC_SERVICE = "lunarclient.websocket.cosmetic.v1.CosmeticService";
+	private static final long MAX_BACKOFF_MS = 30_000;
 	private final AtomicInteger requestCounter = new AtomicInteger(1);
 	private final Set<String> pendingLoginIds = ConcurrentHashMap.newKeySet();
 	private volatile Channel channel;
 	private volatile boolean wsReady = false;
+	private volatile boolean shouldReconnect = false;
 	private NioEventLoopGroup group;
+	private Runnable onReconnect;
 	public boolean isConnected() {
 		return wsReady && channel != null && channel.isActive();
+	}
+
+	public void setOnReconnect(Runnable onReconnect) {
+		this.onReconnect = onReconnect;
 	}
 
 	public void connect(String jwt) {
 		if (isConnected())
 			return;
-		group = new NioEventLoopGroup(1);
+		shouldReconnect = true;
 		Thread t = new Thread(() -> {
-			try {
-				URI uri = new URI("wss://" + HOST + PATH);
-				DefaultHttpHeaders wsHeaders = new DefaultHttpHeaders();
-				wsHeaders.add("Accept", "application/x-protobuf");
-				WebSocketClientHandshaker hs = WebSocketClientHandshakerFactory.newHandshaker(uri,
-						WebSocketVersion.V13, null, false, wsHeaders);
-				ChannelFuture cf = new Bootstrap().group(group).channel(NioSocketChannel.class)
-						.handler(new ChannelInitializer<SocketChannel>() {
-							@Override
-							protected void initChannel(SocketChannel ch) throws Exception {
-								SSLEngine engine = SSLContext.getDefault().createSSLEngine(HOST,
-										PORT);
-								engine.setUseClientMode(true);
-								SSLParameters sslParams = engine.getSSLParameters();
-								sslParams.setEndpointIdentificationAlgorithm("HTTPS");
-								engine.setSSLParameters(sslParams);
-								SslHandler sslHandler = new SslHandler(engine);
-								WsHandler wsHandler = new WsHandler(hs, jwt);
-								sslHandler.handshakeFuture().addListener(f -> {
-									if (f.isSuccess()) {
-										hs.handshake(ch);
-									} else {
-										LOGGER.warn("SSL failed", f.cause());
-										ch.close();
-									}
-								});
-								ch.pipeline().addLast(sslHandler).addLast(new HttpClientCodec())
-										.addLast(new HttpObjectAggregator(65536))
-										.addLast(wsHandler);
-							}
-						}).connect(HOST, PORT).sync();
-				channel = cf.channel();
-				channel.closeFuture().sync();
-			} catch (Exception e) {
-				LOGGER.warn("Connection failed: {}", e.getMessage());
-			} finally {
-				wsReady = false;
-				channel = null;
-				group.shutdownGracefully(0, 5, TimeUnit.SECONDS);
+			long backoff = 2000;
+			while (shouldReconnect) {
+				group = new NioEventLoopGroup(1);
+				try {
+					establishConnection(jwt);
+				} catch (Exception e) {
+					LOGGER.warn("Connection failed: {}", e.getMessage());
+				} finally {
+					wsReady = false;
+					channel = null;
+					group.shutdownGracefully(0, 5, TimeUnit.SECONDS);
+				}
+				if (!shouldReconnect)
+					break;
+				LOGGER.info("Reconnecting in {}ms...", backoff);
+				try {
+					Thread.sleep(backoff);
+				} catch (InterruptedException e) {
+					break;
+				}
+				backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
 			}
 		}, "Moonlight-WS");
 		t.setDaemon(true);
 		t.start();
 	}
 
+	private void establishConnection(String jwt) throws Exception {
+		URI uri = new URI("wss://" + HOST + PATH);
+		DefaultHttpHeaders wsHeaders = new DefaultHttpHeaders();
+		wsHeaders.add("Accept", "application/x-protobuf");
+		WebSocketClientHandshaker hs = WebSocketClientHandshakerFactory.newHandshaker(uri,
+				WebSocketVersion.V13, null, false, wsHeaders);
+		ChannelFuture cf = new Bootstrap().group(group).channel(NioSocketChannel.class)
+				.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
+				.handler(new ChannelInitializer<SocketChannel>() {
+					@Override
+					protected void initChannel(SocketChannel ch) throws Exception {
+						SSLEngine engine = SSLContext.getDefault().createSSLEngine(HOST, PORT);
+						engine.setUseClientMode(true);
+						SSLParameters sslParams = engine.getSSLParameters();
+						sslParams.setEndpointIdentificationAlgorithm("HTTPS");
+						engine.setSSLParameters(sslParams);
+						SslHandler sslHandler = new SslHandler(engine);
+						sslHandler.setHandshakeTimeoutMillis(10_000);
+						WsHandler wsHandler = new WsHandler(hs, jwt);
+						sslHandler.handshakeFuture().addListener(f -> {
+							if (f.isSuccess()) {
+								hs.handshake(ch);
+							} else {
+								LOGGER.warn("SSL failed", f.cause());
+								ch.close();
+							}
+						});
+						ch.pipeline().addLast(sslHandler).addLast(new HttpClientCodec())
+								.addLast(new HttpObjectAggregator(65536)).addLast(wsHandler);
+					}
+				}).connect(HOST, PORT).sync();
+		channel = cf.channel();
+		channel.closeFuture().sync();
+	}
+
 	public void disconnect() {
+		shouldReconnect = false;
 		wsReady = false;
 		if (channel != null)
 			channel.close();
@@ -442,6 +468,9 @@ public final class WSClient {
 							if (f.isSuccess()) {
 								wsReady = true;
 								LOGGER.info("Ready");
+								if (onReconnect != null) {
+									onReconnect.run();
+								}
 								// Register our presence so peers can see our cosmetics.
 								try {
 									String loginId = send(COSMETIC_SERVICE, "Login", new byte[0]);
