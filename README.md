@@ -1,19 +1,14 @@
 # Moonlight
 
-A Minecraft Forge mod that spoofs a Lunar Client connection to servers, implementing the Apollo protocol.
-
-## Overview
-
-Moonlight is a simple implementation of the [Apollo protocol](https://lunarclient.dev/apollo/introduction) that allows a Forge client to appear as Lunar Client to servers. This enables access to Apollo-enabled features and integrations on servers that support Lunar Client.
+A Minecraft Forge 1.8.9 mod that spoofs a Lunar Client connection, including peer detection, tab list icons, and the full Apollo protocol.
 
 ## Features
 
-- Spoofs client brand to appear as Lunar Client
-- Blocks FML handshake packets to appear as a vanilla client
-- Registers Apollo plugin channels (`lunar:apollo` and `apollo:json`)
-- Sends proper `PlayerHandshakeMessage` in Protocol Buffer format
-- Handles incoming Apollo messages from servers (both Protobuf and JSON formats)
-- Supports all major Apollo message types including waypoints, borders, notifications, titles, holograms, teams, staff mods, and more (currently only logs)
+- **Client Brand Spoofing** - Appears as Lunar Client to servers, bypassing Forge/FML detection
+- **Apollo Protocol** - Full [Apollo](https://lunarclient.dev/apollo/introduction) handshake with realistic per-user mod settings
+- **Peer Detection** - Connects to Lunar's WebSocket to see which players are on Lunar Client
+- **Tab List Icons** - Displays the Lunar icon next to peers in the tab list
+- **Auto Version Sync** - Fetches the latest Lunar Client version automatically and caches it locally
 
 ## Building
 
@@ -21,23 +16,20 @@ Moonlight is a simple implementation of the [Apollo protocol](https://lunarclien
 ./gradlew build
 ```
 
-The built JAR will be in `build/libs/`.
+The built JAR will be in `build/libs/`. To bake the Lunar version into the build (CI):
+
+```bash
+eval $(python3 scripts/fetch_lunar_version.py)
+./gradlew build -PlunarVersion=$lunarVersion -PlunarGitCommit=$lunarGitCommit
+```
 
 ## Installation
 
-1. Place the built JAR file in your Minecraft `mods/` directory
+1. Place the JAR in your `.minecraft/mods/` directory
 2. Launch Minecraft with Forge 1.8.9
-3. Connect to any server - you will appear as Lunar Client
+3. Connect to any server
 
-## Version Updates
-
-Lunar Client version information (semver, git commit, etc.) is manually updated from time to time. To get the latest versions and hashes, you can use the [HandshakeCapture](https://github.com/polariscli/HandshakeCapture) plugin on a test server to capture real Lunar Client handshake data.
-
-The version constants are located in `src/main/java/org/afterlike/moonlight/Moonlight.java` and can be updated based on captured handshake data.
-
-## Apollo Protocol
-
-This mod implements the Apollo protocol as documented at [lunarclient.dev/apollo](https://lunarclient.dev/apollo/introduction). Apollo enables server-side control of Lunar Client features and custom integrations.
+On first launch, the mod fetches and caches the current Lunar Client version. The cache refreshes every 24 hours.
 
 ## License
 
@@ -45,5 +37,4 @@ This project is licensed under the GNU General Public License v3.0. See the [LIC
 
 ## Disclaimer
 
-This mod is for educational and compatibility purposes. Use responsibly and in accordance with server rules and terms of service.
-
+This project is for educational and compatibility purposes. Use responsibly and in accordance with server rules.
