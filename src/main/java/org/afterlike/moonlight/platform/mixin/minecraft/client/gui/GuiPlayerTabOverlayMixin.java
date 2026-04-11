@@ -3,6 +3,7 @@ package org.afterlike.moonlight.platform.mixin.minecraft.client.gui;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiPlayerTabOverlay;
 import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraft.scoreboard.ScoreObjective;
@@ -17,6 +18,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArgs;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.invoke.arg.Args;
 
@@ -62,5 +64,24 @@ public abstract class GuiPlayerTabOverlayMixin {
 		float y = args.get(2);
 		PeerIcon.draw((int) x, (int) y, ICON_SIZE, data.r, data.g, data.b, data.a);
 		args.set(1, x + ICON_SHIFT);
+	}
+
+	@Redirect(method = "renderPlayerlist", at = @At(value = "INVOKE",
+			target = "Lnet/minecraft/client/gui/FontRenderer;getStringWidth(Ljava/lang/String;)I"))
+	private int moonlight$getStringWidth(FontRenderer fontRenderer, String text) {
+		int width = fontRenderer.getStringWidth(text);
+		if (moonlight$nameToInfo == null)
+			return width;
+		String lookup = text;
+		if (lookup.length() > 2 && lookup.charAt(0) == '\u00a7' && lookup.charAt(1) == 'o') {
+			lookup = lookup.substring(2);
+		}
+		NetworkPlayerInfo info = moonlight$nameToInfo.get(lookup);
+		if (info == null)
+			return width;
+		PeerData data = PeerRegistry.getInstance().get(info.getGameProfile().getId());
+		if (data == null)
+			return width;
+		return width + ICON_SHIFT;
 	}
 }
