@@ -15,20 +15,25 @@ public class NetHandlerPlayClientMixin {
 	private void moonlight$onHandleCustomPayload(S3FPacketCustomPayload packet, CallbackInfo ci) {
 		String channel = packet.getChannelName();
 		ApolloMessageHandler handler = ApolloMessageHandler.getInstance();
-		if (channel.equals(ApolloHandler.CHANNEL_APOLLO)) {
-			try {
-				byte[] data = new byte[packet.getBufferData().readableBytes()];
-				packet.getBufferData().getBytes(packet.getBufferData().readerIndex(), data);
-				handler.handleProtobufMessage(data);
-			} catch (Exception ignored) {
-			}
-		} else if (channel.equals(ApolloHandler.CHANNEL_APOLLO_JSON)) {
-			try {
-				byte[] data = new byte[packet.getBufferData().readableBytes()];
-				packet.getBufferData().getBytes(packet.getBufferData().readerIndex(), data);
-				handler.handleJsonMessage(data);
-			} catch (Exception ignored) {
-			}
+		switch (channel) {
+			case ApolloHandler.CHANNEL_APOLLO :
+				try {
+					byte[] data = new byte[packet.getBufferData().readableBytes()];
+					packet.getBufferData().getBytes(packet.getBufferData().readerIndex(), data);
+					handler.handleProtobufMessage(data);
+				} catch (Exception ignored) {
+				}
+				break;
+			case ApolloHandler.CHANNEL_APOLLO_JSON :
+				try {
+					byte[] data = new byte[packet.getBufferData().readableBytes()];
+					packet.getBufferData().getBytes(packet.getBufferData().readerIndex(), data);
+					handler.handleJsonMessage(data);
+				} catch (Exception ignored) {
+				}
+				break;
+			default :
+				break;
 		}
 	}
 }

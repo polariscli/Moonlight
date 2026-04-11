@@ -8,16 +8,13 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/**
- * Targets FMLCommonHandler since Forge patches ClientBrandRetriever to delegate
- * to getModName().
- */
 @Mixin(FMLCommonHandler.class)
 public class FMLCommonHandlerMixin {
 	@Inject(method = "getModName", at = @At("HEAD"), cancellable = true, remap = false)
 	private void moonlight$getModName(CallbackInfoReturnable<String> cir) {
-		if (!Minecraft.getMinecraft().isSingleplayer()) {
-			cir.setReturnValue(Moonlight.CLIENT_BRAND);
+		String brand = Moonlight.get().getClientBrand();
+		if (!Minecraft.getMinecraft().isSingleplayer() && brand != null) {
+			cir.setReturnValue(brand);
 		}
 	}
 }

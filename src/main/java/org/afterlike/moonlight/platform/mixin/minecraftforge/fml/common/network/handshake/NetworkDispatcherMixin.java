@@ -7,7 +7,8 @@ import net.minecraft.network.Packet;
 import net.minecraft.network.play.server.S01PacketJoinGame;
 import net.minecraft.network.play.server.S3FPacketCustomPayload;
 import net.minecraftforge.fml.common.network.handshake.NetworkDispatcher;
-import org.afterlike.moonlight.Moonlight;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -19,6 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(NetworkDispatcher.class)
 public abstract class NetworkDispatcherMixin {
+	@Unique private static final Logger moonlight$LOGGER = LogManager.getLogger();
 	@Shadow(remap = false)
 	@Final
 	public NetworkManager manager;
@@ -31,23 +33,19 @@ public abstract class NetworkDispatcherMixin {
 		if (moonlight$handshakeAborted || Minecraft.getMinecraft().isSingleplayer()) {
 			return;
 		}
-		// If it's an FML handshake payload, abort as vanilla immediately
 		if (msg instanceof S3FPacketCustomPayload) {
 			S3FPacketCustomPayload payload = (S3FPacketCustomPayload) msg;
 			String ch = payload.getChannelName();
 			if ("FML|HS".equals(ch) || "FML|MP".equals(ch)) {
-				Moonlight.getLogger().info("Server sent FML handshake, completing as VANILLA");
+				moonlight$LOGGER.info("Server sent FML handshake, completing as VANILLA");
 				moonlight$handshakeAborted = true;
 				abortClientHandshake("VANILLA");
 				// Don't cancel - let it go to handleVanilla
 				return;
 			}
 		}
-		if (msg instanceof S01PacketJoinGame) {
-			Moonlight.getLogger().info("Received JoinGame packet, completing as VANILLA");
-		} else {
-			Moonlight.getLogger().info("Non-FML packet detected, completing as VANILLA");
-		}
+		moonlight$LOGGER.info("Completing FML handshake as VANILLA ({})",
+				msg instanceof S01PacketJoinGame ? "JoinGame" : "non-FML packet");
 		moonlight$handshakeAborted = true;
 		abortClientHandshake("VANILLA");
 		ctx.fireChannelRead(msg);
@@ -64,9 +62,8 @@ public abstract class NetworkDispatcherMixin {
 					&& ("FML|HS".equals(channelName) || "FML|MP".equals(channelName))) {
 				return;
 			}
-			// Block FML handshake packets if we haven't aborted yet
 			if ("FML|HS".equals(channelName) || "FML|MP".equals(channelName)) {
-				cir.setReturnValue(true); // Pretend we handled it
+				cir.setReturnValue(true);
 			}
 		}
 	}

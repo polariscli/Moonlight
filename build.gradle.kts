@@ -5,9 +5,12 @@ import org.apache.commons.lang3.SystemUtils
 // Buildscript based on https://github.com/lineargraph/Forge1.8.9Template (Unlicense)
 
 // Version from GitHub Tag:
-val version: String by project
-val lunarVersion: String by project
-val lunarGitCommit: String by project
+val gitRef : String? = System.getenv("GITHUB_REF_NAME")
+version = gitRef ?: "dev"
+
+// Lunar Properties:
+val lunarVersion = findProperty("lunarVersion")?.toString() ?: ""
+val lunarGitCommit = findProperty("lunarGitCommit")?.toString() ?: ""
 
 // Plugins:
 plugins {
@@ -61,12 +64,12 @@ sourceSets {
     main {
         blossom {
             resources {
-                property("version", version)
+                property("version", version.toString())
                 property("lunarVersion", lunarVersion)
                 property("lunarGitCommit", lunarGitCommit)
             }
             javaSources {
-                property("version", version)
+                property("version", version.toString())
                 property("lunarVersion", lunarVersion)
                 property("lunarGitCommit", lunarGitCommit)
             }
@@ -111,7 +114,7 @@ dependencies {
     forge("net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9")
 
     shade("com.google.code.gson:gson:2.13.2")
-    shade("com.lunarclient:apollo-protos:0.0.5")
+    shade("com.lunarclient:apollo-protos:0.0.6")
     shade("org.spongepowered:mixin:0.7.11-SNAPSHOT") {
         isTransitive = false
     }

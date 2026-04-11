@@ -18,18 +18,24 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.network.FMLNetworkEvent;
 import org.afterlike.moonlight.Moonlight;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 public class ApolloHandler {
 	public static final @NotNull String CHANNEL_APOLLO = "lunar:apollo";
 	public static final @NotNull String CHANNEL_APOLLO_JSON = "apollo:json";
+	public static final @NotNull String CHANNEL_PM = "lunarclient:pm";
+	public static final @NotNull String CHANNEL_TIMERS = "badlion:timers";
+	public static final @NotNull String CHANNEL_TRANSFER = "transfer:channel";
+	private static final Logger LOGGER = LogManager.getLogger();
 	private static ApolloHandler instance;
 	private final Set<NetworkManager> registeredManagers = new HashSet<>();
 	public static void init() {
 		if (instance == null) {
 			instance = new ApolloHandler();
 			MinecraftForge.EVENT_BUS.register(instance);
-			Moonlight.getLogger().info("Apollo handler initialized");
+			LOGGER.info("Apollo handler initialized");
 		}
 	}
 
@@ -40,88 +46,57 @@ public class ApolloHandler {
 	private ApolloHandler() {
 	}
 
-	/**
-	 * Called when the client connects to a server. Registers Apollo plugin channels
-	 * to appear as Lunar Client.
-	 */
 	@SubscribeEvent
 	public void onClientConnected(FMLNetworkEvent.ClientConnectedToServerEvent event) {
 		if (Minecraft.getMinecraft().isSingleplayer()) {
 			return;
 		}
 		NetworkManager manager = event.manager;
-		// Prevent duplicate registration (event fires twice: vanilla then modded)
 		if (registeredManagers.contains(manager)) {
 			return;
 		}
 		registeredManagers.add(manager);
-		Moonlight.getLogger().info(
-				"ApolloHandler.onClientConnected - Connection: {}, Remote: {}, HandlerType: {}",
-				manager.isChannelOpen() ? "OPEN" : "CLOSED", manager.getRemoteAddress(),
-				event.getHandlerType());
 		registerChannels(manager);
 		sendPlayerHandshake(manager);
 	}
 
-	/**
-	 * Registers the lunar:apollo and apollo:json channels via REGISTER packet.
-	 */
 	private void registerChannels(NetworkManager manager) {
-		// Channel registration uses REGISTER channel with null-separated channel names
-		String channels = CHANNEL_APOLLO + "\0" + CHANNEL_APOLLO_JSON;
+		String channels = String.join("\0", CHANNEL_APOLLO, CHANNEL_APOLLO_JSON, CHANNEL_PM,
+				CHANNEL_TIMERS, CHANNEL_TRANSFER);
 		byte[] data = channels.getBytes(StandardCharsets.UTF_8);
 		PacketBuffer buffer = new PacketBuffer(Unpooled.buffer());
 		buffer.writeBytes(data);
 		C17PacketCustomPayload packet = new C17PacketCustomPayload("REGISTER", buffer);
 		manager.sendPacket(packet);
-		Moonlight.getLogger().info(
-				"ApolloHandler.registerChannels - Registered Apollo channels: {} and {}",
-				CHANNEL_APOLLO, CHANNEL_APOLLO_JSON);
+		LOGGER.info("Registered 5 Lunar channels");
 	}
 
-	/**
-	 * Sends the PlayerHandshakeMessage to the server using Protocol Buffer format.
-	 */
 	private void sendPlayerHandshake(NetworkManager manager) {
-		Moonlight.getLogger().debug(
-				"ApolloHandler.sendPlayerHandshake - Constructing protobuf handshake message");
-		// Build Minecraft version (v1_8 for 1.8.9)
+		String version = Moonlight.get().getLunarVersion();
+		String gitCommit = Moonlight.get().getLunarGitCommit();
+		if (version == null || gitCommit == null) {
+			LOGGER.warn("Lunar version not yet available, skipping Apollo handshake");
+			return;
+		}
 		MinecraftVersion minecraftVersion = MinecraftVersion.newBuilder().setEnum("v1_8").build();
-		// Build Lunar Client version
+		String semver = version.startsWith("v") ? version : "v" + version;
 		LunarClientVersion lunarClientVersion = LunarClientVersion.newBuilder()
-				.setGitBranch("master").setGitCommit(Moonlight.LUNAR_GIT_COMMIT)
-				.setSemver(Moonlight.LUNAR_VERSION).build();
-		// Build PlayerHandshakeMessage
-		PlayerHandshakeMessage handshake = PlayerHandshakeMessage.newBuilder()
+				.setGitBranch("master").setGitCommit(gitCommit).setSemver(semver).build();
+		PlayerHandshakeMessage.Builder handshake = PlayerHandshakeMessage.newBuilder()
 				.setMinecraftVersion(minecraftVersion).setLunarClientVersion(lunarClientVersion)
 				.setEmbeddedCheckoutSupport(
-						EmbeddedCheckoutSupport.EMBEDDED_CHECKOUT_SUPPORT_WINDOW)
-				.build();
-		// Wrap in Any and convert to byte array
-		Any any = Any.pack(handshake);
+						EmbeddedCheckoutSupport.EMBEDDED_CHECKOUT_SUPPORT_WINDOW);
+		ModStatusGenerator.apply(handshake,
+				Minecraft.getMinecraft().getSession().getProfile().getId());
+		Any any = Any.pack(handshake.build());
 		byte[] data = any.toByteArray();
-		Moonlight.getLogger().debug(
-				"ApolloHandler.sendPlayerHandshake - Sending handshake on channel: {}, size: {} bytes, channel open: {}",
-				CHANNEL_APOLLO, data.length, manager.isChannelOpen());
-		// Send on lunar:apollo channel (protobuf format)
 		PacketBuffer buffer = new PacketBuffer(Unpooled.buffer());
 		buffer.writeBytes(data);
 		C17PacketCustomPayload packet = new C17PacketCustomPayload(CHANNEL_APOLLO, buffer);
 		manager.sendPacket(packet);
-		Moonlight.getLogger().info(
-				"ApolloHandler.sendPlayerHandshake - Sent Apollo player handshake (protobuf)");
+		LOGGER.info("Sent Apollo player handshake");
 	}
 
-	/**
-	 * Sends a JSON packet on the specified channel.
-	 *
-	 * @param manager
-	 *            the network manager
-	 * @param channel
-	 *            the plugin channel
-	 * @param message
-	 *            the JSON message to send
-	 */
 	public void sendPacket(NetworkManager manager, @NotNull String channel,
 			@NotNull JsonObject message) {
 		byte[] data = message.toString().getBytes(StandardCharsets.UTF_8);
@@ -131,14 +106,6 @@ public class ApolloHandler {
 		manager.sendPacket(packet);
 	}
 
-	/**
-	 * Sends a JSON packet on the specified channel using the current connection.
-	 *
-	 * @param channel
-	 *            the plugin channel
-	 * @param message
-	 *            the JSON message to send
-	 */
 	public void sendPacket(@NotNull String channel, @NotNull JsonObject message) {
 		if (Minecraft.getMinecraft().getNetHandler() == null) {
 			return;

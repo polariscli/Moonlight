@@ -17,11 +17,21 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Fetch Lunar Client version
+        id: lunar
+        run: |
+          python3 scripts/fetch_lunar_version.py >> "$GITHUB_OUTPUT" || echo "Version fetch failed, building without baked-in version"
+
       - name: Make gradlew executable
         run: chmod +x gradlew
 
       - name: Build
-        run: ./gradlew build
+        run: |
+          ARGS=""
+          if [ -n "${{ steps.lunar.outputs.lunarVersion }}" ]; then
+            ARGS="-PlunarVersion=${{ steps.lunar.outputs.lunarVersion }} -PlunarGitCommit=${{ steps.lunar.outputs.lunarGitCommit }}"
+          fi
+          ./gradlew build $ARGS
 
       - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v2

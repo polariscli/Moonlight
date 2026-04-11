@@ -8,6 +8,7 @@
     "minecraftforge.fml.common.network.handshake.NetworkDispatcherMixin"
   ],
   "client": [
-    "minecraft.client.network.NetHandlerPlayClientMixin"
+    "minecraft.client.network.NetHandlerPlayClientMixin",
+    "minecraft.client.gui.GuiPlayerTabOverlayMixin"
   ]
 }
