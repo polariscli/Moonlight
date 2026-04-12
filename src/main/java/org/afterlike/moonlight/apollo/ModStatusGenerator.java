@@ -2,10 +2,14 @@ package org.afterlike.moonlight.apollo;
 
 import com.google.protobuf.Value;
 import com.lunarclient.apollo.player.v1.PlayerHandshakeMessage;
+import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import org.afterlike.moonlight.Moonlight;
 
 /**
  * Generates a realistic mod_status map seeded by the player's UUID. Only
@@ -22,8 +26,21 @@ final class ModStatusGenerator {
 		}
 	}
 
+	private static long deriveSeed(long installSeed, UUID playerUuid) {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			ByteBuffer buf = ByteBuffer.allocate(24);
+			buf.putLong(installSeed);
+			buf.putLong(playerUuid.getMostSignificantBits());
+			buf.putLong(playerUuid.getLeastSignificantBits());
+			return ByteBuffer.wrap(md.digest(buf.array())).getLong();
+		} catch (NoSuchAlgorithmException e) {
+			return installSeed ^ playerUuid.getLeastSignificantBits();
+		}
+	}
+
 	private static Map<String, Value> generate(UUID playerUuid) {
-		Random rng = new Random(playerUuid.getLeastSignificantBits());
+		Random rng = new Random(deriveSeed(Moonlight.get().getModStatusSeed(), playerUuid));
 		Map<String, Value> s = new LinkedHashMap<>();
 		maybeBool(s, rng, "cooldowns.enabled", false, 0.30);
 		maybeBool(s, rng, "direction-hud.enabled", false, 0.35);

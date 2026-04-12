@@ -8,6 +8,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -19,6 +20,7 @@ public class MoonlightConfig {
 	public String lunarVersion;
 	public String lunarGitCommit;
 	public long fetchedAt;
+	public Long modStatusSeed;
 	private MoonlightConfig() {
 	}
 
@@ -40,13 +42,20 @@ public class MoonlightConfig {
 					StandardCharsets.UTF_8)) {
 				MoonlightConfig cfg = GSON.fromJson(reader, MoonlightConfig.class);
 				if (cfg != null && cfg.lunarVersion != null && cfg.lunarGitCommit != null) {
+					if (cfg.modStatusSeed == null) {
+						cfg.modStatusSeed = UUID.randomUUID().getLeastSignificantBits();
+						cfg.save();
+					}
 					return cfg;
 				}
 			} catch (Exception e) {
 				LOGGER.warn("Failed to load version cache: {}", e.getMessage());
 			}
 		}
-		return new MoonlightConfig();
+		MoonlightConfig cfg = new MoonlightConfig();
+		cfg.modStatusSeed = UUID.randomUUID().getLeastSignificantBits();
+		cfg.save();
+		return cfg;
 	}
 
 	public void save() {

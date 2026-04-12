@@ -18,6 +18,7 @@ public class Moonlight {
 			: null;
 	private volatile @Nullable String authenticatorJwt;
 	private volatile @Nullable UUID authenticatedUuid;
+	private volatile long modStatusSeed;
 	private Moonlight() {
 	}
 
@@ -60,6 +61,14 @@ public class Moonlight {
 	public void setAuthenticatorJwt(@NotNull String jwt, @NotNull UUID uuid) {
 		this.authenticatorJwt = jwt;
 		this.authenticatedUuid = uuid;
+	}
+
+	public long getModStatusSeed() {
+		return modStatusSeed;
+	}
+
+	public void setModStatusSeed(long seed) {
+		this.modStatusSeed = seed;
 	}
 
 	public void clearAuth() {

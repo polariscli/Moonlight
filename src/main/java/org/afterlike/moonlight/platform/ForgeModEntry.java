@@ -23,6 +23,7 @@ public class ForgeModEntry {
 	public void init(FMLInitializationEvent event) {
 		LOGGER.info("Moonlight {} initializing...", Moonlight.get().getVersion());
 		MoonlightConfig config = MoonlightConfig.load();
+		Moonlight.get().setModStatusSeed(config.modStatusSeed);
 		if (config.lunarVersion != null && config.lunarGitCommit != null) {
 			Moonlight.get().setLunarVersion(config.lunarVersion, config.lunarGitCommit);
 		}
